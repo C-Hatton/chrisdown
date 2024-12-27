@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Helper function to handle inline formatting
+// Helper function to handle inline formatting (unchanged)
 func handleInlineFormatting(text string) string {
 	// Images (must come before links)
 	text = regexp.MustCompile(`!\[([^]]+)]\(([^)]+)\)`).ReplaceAllString(text, `<img src="$2" alt="$1">`)
@@ -44,12 +44,14 @@ func RenderMarkdown(input string, cfg Config) string {
 	lines := strings.Split(input, "\n")
 
 	state := struct {
-		inUnorderedList bool
-		inOrderedList   bool
-		inCodeBlock     bool
-		codeLanguage    string
-		inParagraph     bool
-		listDepth       int
+		inParagraph  bool
+		inCodeBlock  bool
+		codeLanguage string
+		listStack    []struct {
+			isOrdered bool
+			depth     int
+		}
+		currentListDepth int
 	}{}
 
 	// Pre-process images if base URL is provided
@@ -67,6 +69,7 @@ func RenderMarkdown(input string, cfg Config) string {
 
 	for i := 0; i < len(lines); i++ {
 		line := strings.TrimSpace(lines[i])
+		indent := len(lines[i]) - len(strings.TrimLeft(lines[i], " "))
 
 		// Handle empty lines
 		if line == "" {
@@ -78,37 +81,61 @@ func RenderMarkdown(input string, cfg Config) string {
 		}
 
 		// Handle Lists
-		if listMatch := regexp.MustCompile(`^(\s*)([-*+]|\d+\.)\s+(.+)$`).FindStringSubmatch(line); listMatch != nil {
-			indent := len(listMatch[1])
-			marker := listMatch[2]
-			content := listMatch[3]
+		if listMatch := regexp.MustCompile(`^([-*+]|\d+\.|[a-z]\.|[ivxIVX]+\.)\s+(.+)$`).FindStringSubmatch(line); listMatch != nil {
+			marker := listMatch[1]
+			content := listMatch[2]
+			depth := indent/2 + 1
 
 			if state.inParagraph {
 				buffer.WriteString("</p>\n")
 				state.inParagraph = false
 			}
 
-			isOrdered := regexp.MustCompile(`^\d+\.$`).MatchString(marker)
-			newDepth := indent/2 + 1
+			isOrdered := regexp.MustCompile(`^(\d+\.|[a-z]\.|[ivxIVX]+\.)$`).MatchString(marker)
 
-			// Close lists if needed
-			for state.listDepth > newDepth {
-				if state.inOrderedList {
+			// Close deeper lists
+			for len(state.listStack) > 0 && state.listStack[len(state.listStack)-1].depth > depth {
+				if state.listStack[len(state.listStack)-1].isOrdered {
 					buffer.WriteString("</ol>\n")
 				} else {
 					buffer.WriteString("</ul>\n")
 				}
-				state.listDepth--
+				state.listStack = state.listStack[:len(state.listStack)-1]
 			}
 
-			// Open new lists if needed
-			for state.listDepth < newDepth {
+			// If we're at a new depth or switching list types, start a new list
+			if len(state.listStack) == 0 ||
+				state.listStack[len(state.listStack)-1].depth < depth ||
+				(state.listStack[len(state.listStack)-1].depth == depth &&
+					state.listStack[len(state.listStack)-1].isOrdered != isOrdered) {
+
 				if isOrdered {
-					buffer.WriteString("<ol>\n")
+					buffer.WriteString("<ol style=\"list-style-type: ")
+					switch depth % 3 {
+					case 1:
+						buffer.WriteString("decimal")
+					case 2:
+						buffer.WriteString("lower-alpha")
+					case 0:
+						buffer.WriteString("upper-roman")
+					}
+					buffer.WriteString("\">\n")
 				} else {
-					buffer.WriteString("<ul>\n")
+					buffer.WriteString("<ul style=\"list-style-type: ")
+					switch depth % 3 {
+					case 1:
+						buffer.WriteString("circle")
+					case 2:
+						buffer.WriteString("disc")
+					case 0:
+						buffer.WriteString("square")
+					}
+					buffer.WriteString("\">\n")
 				}
-				state.listDepth++
+				state.listStack = append(state.listStack, struct {
+					isOrdered bool
+					depth     int
+				}{isOrdered, depth})
 			}
 
 			// Handle task lists
@@ -123,10 +150,25 @@ func RenderMarkdown(input string, cfg Config) string {
 			} else {
 				buffer.WriteString("<li>" + handleInlineFormatting(html.EscapeString(content)) + "</li>\n")
 			}
+
+			// If next line is empty or has less indent, close appropriate lists
+			if i == len(lines)-1 ||
+				len(strings.TrimSpace(lines[i+1])) == 0 ||
+				(len(lines[i+1])-len(strings.TrimLeft(lines[i+1], " "))) < indent {
+				currentDepth := depth
+				for len(state.listStack) > 0 && state.listStack[len(state.listStack)-1].depth >= currentDepth {
+					if state.listStack[len(state.listStack)-1].isOrdered {
+						buffer.WriteString("</ol>\n")
+					} else {
+						buffer.WriteString("</ul>\n")
+					}
+					state.listStack = state.listStack[:len(state.listStack)-1]
+				}
+			}
 			continue
 		}
 
-		// Handle other elements (kept same as before...)
+		// Handle other elements (unchanged)
 		if strings.HasPrefix(line, "```") {
 			if state.inCodeBlock {
 				buffer.WriteString("</code></pre>\n")
@@ -183,13 +225,13 @@ func RenderMarkdown(input string, cfg Config) string {
 	if state.inParagraph {
 		buffer.WriteString("</p>\n")
 	}
-	for state.listDepth > 0 {
-		if state.inOrderedList {
+	for len(state.listStack) > 0 {
+		if state.listStack[len(state.listStack)-1].isOrdered {
 			buffer.WriteString("</ol>\n")
 		} else {
 			buffer.WriteString("</ul>\n")
 		}
-		state.listDepth--
+		state.listStack = state.listStack[:len(state.listStack)-1]
 	}
 	if state.inCodeBlock {
 		buffer.WriteString("</code></pre>\n")

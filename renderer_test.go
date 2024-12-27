@@ -30,7 +30,22 @@ func TestRenderMarkdownBasic(t *testing.T) {
 		{
 			name:     "unordered list",
 			input:    "- Item 1\n- Item 2\n",
-			expected: "<ul>\n<li>Item 1</li>\n<li>Item 2</li>\n</ul>\n",
+			expected: "<ul style=\"list-style-type: circle\">\n<li>Item 1</li>\n<li>Item 2</li>\n</ul>\n",
+		},
+		{
+			name:     "ordered list with nested roman numerals",
+			input:    "1. Item 1\n  i. Item 2\n",
+			expected: "<ol style=\"list-style-type: decimal\">\n<li>Item 1</li>\n<ol style=\"list-style-type: upper-roman\">\n<li>Item 2</li>\n</ol>\n</ol>\n",
+		},
+		{
+			name:     "ordered list with nested letters",
+			input:    "1. Item 1\n  a. Item 2\n",
+			expected: "<ol style=\"list-style-type: decimal\">\n<li>Item 1</li>\n<ol style=\"list-style-type: lower-alpha\">\n<li>Item 2</li>\n</ol>\n</ol>\n",
+		},
+		{
+			name:     "unordered list with nested lists",
+			input:    "- Item 1\n  - Nested Item 1\n  - Nested Item 2\n- Item 2\n",
+			expected: "<ul style=\"list-style-type: circle\">\n<li>Item 1</li>\n<ul style=\"list-style-type: disc\">\n<li>Nested Item 1</li>\n<li>Nested Item 2</li>\n</ul>\n<li>Item 2</li>\n</ul>\n",
 		},
 		{
 			name:     "paragraph with formatting",
@@ -85,8 +100,8 @@ func TestMarkdownFileCLI(t *testing.T) {
 	}(outputFile.Name())
 
 	// Write markdown content to the input file
-	markdownContent := "# Title\n\nThis is **bold** text and this is *italic* text."
-	expectedHTML := "<h1>Title</h1>\n<p>This is <strong>bold</strong> text and this is <em>italic</em> text.</p>\n"
+	markdownContent := "# Title\n\nThis is **bold** text and this is *italic* text.\n- List item 1\n- List item 2\n1. Ordered item 1\n  i. Roman item 1\n"
+	expectedHTML := "<h1>Title</h1>\n<p>This is <strong>bold</strong> text and this is <em>italic</em> text.</p>\n<ul style=\"list-style-type: circle\">\n<li>List item 1</li>\n<li>List item 2</li>\n</ul>\n<ol style=\"list-style-type: decimal\">\n<li>Ordered item 1</li>\n<ol style=\"list-style-type: upper-roman\">\n<li>Roman item 1</li>\n</ol>\n</ol>\n"
 
 	_, err = inputFile.WriteString(markdownContent)
 	if err != nil {
